@@ -1,0 +1,26 @@
+node_modules
+test
+scripts
+wrangler.jsonc
+.wrangler
+dist-library
+*.md
+*.log
+.git
+.env*
+**/library-signing*.pem
+# Hosted-only code (Cloudflare Worker entry, OAuth, API keys, AWS Marketplace, library feed,
+# budget, sign-up pages). The self-hosted server never imports these; test/image-scope.test.js
+# keeps it that way.
+src/index.js
+src/api.js
+src/auth
+src/aws
+src/budget.js
+src/keys.js
+src/lenient.js
+src/library-feed.js
+src/openapi.js
+src/selfhosted
+src/ui
+src/wellknown.js

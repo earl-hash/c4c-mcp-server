@@ -1,0 +1,4 @@
+node_modules
+*.pem
+!server/library-public-key.pem
+.env*
