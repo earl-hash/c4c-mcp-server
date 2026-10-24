@@ -47,5 +47,5 @@ export const SERVER_INSTRUCTIONS = [
   "superseded-in-part: quote the Mortgagee Letter for the replaced provisions, this text for the rest.",
   "verify_quote quotes before presenting them. composed: check `omissions` (a dropped \"not\" changes meaning); not_found: not a quotation; superseded: only as the prior version; update-18-optional: as the Update 18 version; rescinded: never as current.",
   "lookup_citation \"ambiguous\": ask the user which. daily_capacity_reached: stop for today; don't answer from memory.",
-  "Playbooks (FNMA LL-2026-04 P&P review; FHA, VA, USDA loan-file QC): list_playbooks, then start_playbook; follow its instructions exactly. Playbook tools take only ids: the user's documents stay in their chat, never sent here.",
+  "Playbooks (FNMA AI governance P&P review; FHA, VA, USDA loan-file QC): list_playbooks, then start_playbook; follow its instructions exactly. Playbook tools take only ids: the user's documents stay in their chat, never sent here.",
 ].join("\n");

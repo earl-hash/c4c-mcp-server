@@ -11,7 +11,7 @@ import { listToolsInProcess } from "../src/inprocess.js";
 import { libraryInfo } from "../src/library-info.js";
 
 export const NO_LIBRARY_MESSAGE =
-  "The regulation library is not installed yet. Set C4C_LICENSE_KEY so the server can download it, or load a library file, then retry.";
+  "The regulation library is not installed yet. Set C4C_LICENSE_KEY or a mirror C4C_UPDATE_URL so the server can fetch it, or load a library file, then retry.";
 
 
 let stubToolsPromise;

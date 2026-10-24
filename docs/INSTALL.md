@@ -1,6 +1,6 @@
 # Claude for Compliance (C4C): self-hosted install guide
 
-This guide installs the C4C regulatory MCP server inside your own network. Your AI tools (Claude, ChatGPT, Copilot, internal agents) connect to it over MCP and read the regulation library from your own server. The C4C server makes one kind of outbound request, the update download (which carries your license key), and it never sends questions, documents or answers anywhere. Whether questions and answers stay inside your network depends on the AI tool: an in-network agent or a self-hosted model keeps everything inside, while cloud assistants (ChatGPT, Claude connectors, Copilot Studio) connect from the vendor's cloud, so their questions and answers pass through that vendor under its terms (see "Connect your AI tools"). See `DATA-FLOW.md` for the full picture.
+This guide installs the C4C regulatory MCP server inside your own network. Your AI tools (Claude, ChatGPT, Copilot, internal agents) connect to it over MCP and read the regulation library from your own server. It never sends questions, documents or answers anywhere, and it does not need to contact C4C at all: rule updates can reach it through your own gates (see "Updates through your own gates" below). The only optional connection to C4C is the update download, which carries your license key. Whether questions and answers stay inside your network depends on the AI tool: an in-network agent or a self-hosted model keeps everything inside, while cloud assistants (ChatGPT, Claude connectors, Copilot Studio) connect from the vendor's cloud, so their questions and answers pass through that vendor under its terms (see "Connect your AI tools"). See `DATA-FLOW.md` for the full picture.
 
 Research only. C4C returns regulatory text and citations. It is not legal advice.
 
@@ -9,8 +9,8 @@ Research only. C4C returns regulatory text and citations. It is not legal advice
 - A Linux host (or any host that runs Docker) with Docker 24 or later.
 - 2 GB of RAM and about 5 GB of free disk for the library volume (several versions are kept for rollback).
 - Inbound access: port 8080 from the machines or tools that will connect.
-- Outbound access, only if you want automatic updates: HTTPS (port 443) to `mcp.claudeforcompliance.com`. Without it, use the offline load below.
-- Your C4C license key, needed only for automatic updates. It is free: sign up at https://mcp-auth.claudeforcompliance.com/self-hosted (confirm by email; the key is shown once, and signing up again with the same email replaces it).
+- Outbound access: none required. For updates, either fill an internal mirror through your own gates (below), allow HTTPS (port 443) to `mcp.claudeforcompliance.com`, or use the offline load.
+- Your C4C license key, needed only where updates are fetched from C4C (your gate host, or the server itself if it uses the C4C feed directly). It is free: sign up at https://mcp-auth.claudeforcompliance.com/self-hosted (confirm by email; the key is shown once, and signing up again with the same email replaces it).
 
 ## Get the image
 
@@ -52,8 +52,8 @@ docker run -d --name c4c-mcp \
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `C4C_LICENSE_KEY` | none | Turns on automatic updates. With no key the server never contacts anyone and serves only what is in `/data`. |
-| `C4C_UPDATE_URL` | `https://mcp.claudeforcompliance.com/library` | Where updates are fetched. Must be `https`. |
+| `C4C_LICENSE_KEY` | none | Turns on automatic updates from the C4C feed. Not needed when `C4C_UPDATE_URL` is your own mirror. With no key and no mirror the server never contacts anyone and serves only what is in `/data`. |
+| `C4C_UPDATE_URL` | `https://mcp.claudeforcompliance.com/library` | Where updates are fetched. Must be `https`. Any address other than the C4C feed is treated as your mirror: updates run without a license key and nothing is sent to C4C. |
 | `C4C_UPDATE_INTERVAL_H` | `24` | Hours between update checks. |
 | `C4C_DOWNLOAD_TIMEOUT_MIN` | `30` | Overall ceiling for one library download. |
 | `C4C_STALE_DAYS` | `14` | After this many days without a new library, answers and `/healthz` report `stale`. |
@@ -99,6 +99,28 @@ The image has a built-in Docker health check against the same endpoint. Until a 
 ## Updates
 
 With a license key, the server checks the update URL every `C4C_UPDATE_INTERVAL_H` hours. A new library is downloaded, its signature and checksum are verified, and it is swapped in while requests keep running. A failed or corrupt download changes nothing; the current library keeps serving. Only newer libraries are accepted. Versions look like `2026-10-09.1`.
+
+## Updates through your own gates
+
+If your servers must not reach outside services, keep them inside and let your gate bring the updates in. Every release is signed, so it is verified however it arrives.
+
+1. **At the gate** (a jump host, an artifact-repository job, a managed file transfer step), fetch the newest release from C4C into a folder. The image includes the tool, so Docker is all the gate needs:
+
+   ```
+   docker run --rm -e C4C_LICENSE_KEY=your-license-key -v /srv/c4c-mirror:/mirror c4c-mcp:<tag>      node --no-warnings server/mirror-library.mjs --out /mirror
+   ```
+
+   It checks the signature and the library checksum before writing anything, writes the manifest last, and keeps the two newest versions (`--keep N` to change). Run it on a schedule (daily is plenty). Scan or approve the folder however your process requires.
+
+2. **Inside your network**, serve that folder over HTTPS from any static web server or artifact repository (Artifactory, Nexus, an S3-compatible bucket, IIS). It must serve `manifest.json`, `manifest.sig` and `<version>/corpus.sqlite.gz` at the paths the tool wrote.
+
+3. **On each C4C server**, point `C4C_UPDATE_URL` at it and leave `C4C_LICENSE_KEY` unset:
+
+   ```
+   -e C4C_UPDATE_URL=https://artifacts.yourcompany.internal/c4c
+   ```
+
+   The server checks your mirror every `C4C_UPDATE_INTERVAL_H` hours, sends no license key, never contacts C4C, and verifies the signature again before installing. If your mirror uses an internal certificate authority, mount it and set `NODE_EXTRA_CA_CERTS` (see Proxies).
 
 ## Offline load
 

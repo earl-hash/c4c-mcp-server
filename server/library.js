@@ -296,14 +296,22 @@ export function updateUrlOk(u) {
   return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "localhost");
 }
 
+// Updates run with a license key (from the C4C feed or a mirror) or from a mirror alone.
+export const updatesEnabled = (config) => Boolean(config.licenseKey || config.mirror);
+
 async function feedGet(fetchFn, url, licenseKey, signal) {
   let res;
+  const headers = licenseKey ? { authorization: `Bearer ${licenseKey}` } : {};
   try {
-    res = await fetchFn(url, { headers: { authorization: `Bearer ${licenseKey}` }, redirect: "error", signal });
+    res = await fetchFn(url, { headers, redirect: "error", signal });
   } catch (err) {
     throw new InstallError("network", `network error: ${err?.message ?? err}`);
   }
-  if (res.status === 401 || res.status === 403) throw new InstallError("license", `the update feed refused the license key (HTTP ${res.status})`);
+  if (res.status === 401 || res.status === 403) {
+    throw new InstallError("license", licenseKey
+      ? `the update feed refused the license key (HTTP ${res.status})`
+      : `the update source refused the request (HTTP ${res.status})`);
+  }
   if (!res.ok) throw new InstallError("feed", `the update feed answered HTTP ${res.status} for ${new URL(url).pathname}`);
   return res;
 }
@@ -378,7 +386,7 @@ export async function checkForUpdate({
   downloadTimeoutMs = (config.downloadTimeoutMin || 30) * 60_000,
   maxGzBytes = MAX_GZ_BYTES, maxDbBytes = MAX_DB_BYTES, log,
 }) {
-  if (!config.licenseKey) return { installed: false, reason: "no_license" };
+  if (!updatesEnabled(config)) return { installed: false, reason: "no_license" };
   if (!publicKey) return { installed: false, reason: "no_public_key" };
   if (!updateUrlOk(config.updateUrl)) return { installed: false, reason: "bad_url", detail: "C4C_UPDATE_URL must be https (plain http only to localhost / 127.0.0.1)" };
   const base = config.updateUrl.replace(/\/+$/, "");
@@ -431,7 +439,7 @@ export function startUpdater({
     try { log(line); } catch { /* logging never breaks the updater */ }
   };
   const off = !publicKey ? ["no_public_key", "library-public-key.pem is missing; refusing to install unverified libraries, automatic updates are off"]
-    : !key ? ["no_license", "C4C_LICENSE_KEY is not set; automatic library updates are off"]
+    : !updatesEnabled(config) ? ["no_license", "neither C4C_LICENSE_KEY nor a mirror C4C_UPDATE_URL is set; automatic library updates are off"]
     : !updateUrlOk(config.updateUrl) ? ["bad_url", "C4C_UPDATE_URL must be https (plain http only to localhost / 127.0.0.1); automatic updates are off"]
     : null;
   if (off) {

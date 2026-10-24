@@ -8,7 +8,7 @@ import { readConfig } from "./config.js";
 import { openCorpus } from "./d1-sqlite.js";
 import { createNodeServer } from "./node-server.js";
 import { createUsageRecorder } from "./usage-report.js";
-import { readCurrent, startUpdater, openServingCorpus } from "./library.js";
+import { readCurrent, startUpdater, openServingCorpus, updatesEnabled } from "./library.js";
 
 const PUBLIC_KEY_PATH = fileURLToPath(new URL("./library-public-key.pem", import.meta.url));
 
@@ -31,7 +31,7 @@ const server = createNodeServer({ config, getCorpus: () => corpus, getLibrary: (
 server.listen(config.port, () => console.log(`C4C MCP listening on :${config.port}`));
 
 let stopUpdater = () => {};
-if (config.licenseKey) {
+if (updatesEnabled(config)) {
   stopUpdater = startUpdater({
     config,
     publicKey,

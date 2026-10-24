@@ -3,7 +3,9 @@
 Claude for Compliance (C4C) answers in the regulator's own words. This is the server behind
 the hosted C4C connector, packaged to run inside your own network: your AI tools ask it for
 regulatory text, and it returns verbatim sections with their citations, version and currency
-status. It never sends your questions, documents or answers anywhere.
+status. It never sends your questions, documents or answers anywhere, and it can run with no
+connection to us at all: signed rule updates can reach it through your own gates (an internal
+mirror, your file transfer, or a manual load).
 
 **Research only. Not legal advice.** C4C returns regulatory text and citations for research
 and reference. Check the regulator's own publication before you rely on any text.
@@ -46,6 +48,9 @@ Without one, the server starts with no library and says so at `/healthz`.
 - **Free license key:** https://mcp-auth.claudeforcompliance.com/self-hosted. The key only
   downloads signed library updates; the server runs without one, serving whatever library is
   already in `/data`.
+- **Updates through your own gates:** fill an internal mirror from a gate host with
+  `server/mirror-library.mjs` and point `C4C_UPDATE_URL` at it; the server then needs no license
+  key and never contacts us. See [docs/INSTALL.md](docs/INSTALL.md).
 - Connect your AI tool to `http://<host>:8080/mcp` with the header
   `Authorization: Bearer <C4C_AUTH_TOKEN>`.
 - Full setup, settings and network notes: [docs/INSTALL.md](docs/INSTALL.md).

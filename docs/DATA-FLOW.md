@@ -2,7 +2,7 @@
 
 Research only. C4C returns regulatory text and citations. It is not legal advice.
 
-In short: the C4C server makes one kind of outbound request, a GET to download library updates (it carries your license key). It never sends questions, documents or answers anywhere.
+In short: the C4C server never sends questions, documents or answers anywhere, and it can run with no connection to C4C at all. Rule updates can come to it through your own gates: an internal mirror your IT fills (see "Updates through your own gates" in `INSTALL.md`), or files you load by hand. The only optional connection to C4C is a GET that downloads signed library updates, carrying your license key.
 
 Whether your questions and answers stay inside your network depends on the AI tool you connect, not on C4C:
 
@@ -17,7 +17,7 @@ The diagram shows an AI tool inside your network. A cloud assistant reaches the 
   Your AI tools                 Your network                         Internet
   (Claude, ChatGPT,        +----------------------------+
    Copilot, agents)  ----> | C4C server (container)     |
-   question + citation     |  reads library from /data  | --GET (license key)--> update URL
+   question + citation     |  reads library from /data  | --GET--> your mirror, or the C4C feed
    <---- regulation text   |  (read-only SQLite file)   | <--- signed library --- (optional)
                            |  /data/usage-YYYY-MM.json  |
                            |  (optional, stays here)    |
@@ -32,13 +32,17 @@ The diagram shows an AI tool inside your network. A cloud assistant reaches the 
 | Prompts and questions to your AI tool | Stay with your AI tool. | Not through C4C. With a cloud assistant they go to that vendor. |
 | Search terms and citations your AI tool sends to C4C | Handled in memory by the container on your host. Not written to the library or the usage report. The container's console log records startup and update messages and, if a request fails internally, an error message with its stack trace; it does not log request bodies or answers on purpose, but an internal error message logged to the console may quote part of the request that caused it. | Not sent by C4C. With a cloud assistant, they arrive from and return through that vendor's cloud. |
 | Answers (regulation text, citations, library version and age) | Returned to your AI tool. | Not sent anywhere else by C4C. With a cloud assistant, they return through that vendor's cloud. |
-| Library updates | Downloaded by the container from the update URL. | Inbound only |
-| License key | Sent as part of the GET to the update URL. | Yes, this is the only thing C4C itself sends out |
+| Library updates | Downloaded by the container from the update URL: your internal mirror, or the C4C feed. | Inbound only. With a mirror, the container never leaves your network. |
+| License key | Not needed on the server when it updates from your mirror. With the C4C feed, sent as part of the GET. | Only when the server uses the C4C feed directly; this is the only thing C4C itself sends out |
 | Optional usage report | Written to `/data/usage-YYYY-MM.json` on your disk: counts per day, by tool name and document name; no query text, no user info. | No, unless you choose to send the file to us |
 
-## The only outbound call
+## Update calls, and how to keep them inside your network
 
-When `C4C_LICENSE_KEY` is set, the server periodically makes GET requests to `C4C_UPDATE_URL` (default `https://mcp.claudeforcompliance.com/library`, https only) with your license key, to ask whether a newer library exists and to download it. Nothing is posted, no telemetry is sent, no questions, documents or answers are sent, and the server does not call any other host. Without a license key it makes no outbound calls at all.
+The server makes GET requests to `C4C_UPDATE_URL` to ask whether a newer library exists and to download it. Nothing is posted, no telemetry is sent, no questions, documents or answers are sent, and the server does not call any other host. Three setups:
+
+- **Your mirror (no connection to C4C).** `C4C_UPDATE_URL` points at a server inside your network that your IT fills with `mirror-library.mjs` from a gate host (or by hand). The C4C server sends no license key and never contacts C4C.
+- **The C4C feed.** With `C4C_LICENSE_KEY` set and the default `C4C_UPDATE_URL` (`https://mcp.claudeforcompliance.com/library`), the server fetches directly from C4C, through your proxy if you set one.
+- **Offline.** No license key and no mirror: the server makes no outbound calls at all, and you load updates as files.
 
 Each download is signed. The image carries our public key and rejects any library whose signature or checksum does not match, so a tampered download cannot be installed.
 

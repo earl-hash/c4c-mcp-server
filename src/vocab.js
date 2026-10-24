@@ -358,6 +358,10 @@ export const VOCAB = {
   "hmda": ["home mortgage disclosure", "1003"],
   "fcra": ["fair credit reporting", "1022"],
   "bsa": ["bank secrecy act", "1010"],
+  // Fannie Mae's Information Security and Business Resiliency Supplement (published
+  // 2026-10-21) says "Super Intelligence" where LL-2026-04 and the industry say AI.
+  "ai": ["artificial intelligence", "super intelligence"],
+  "artificial intelligence": ["ai", "super intelligence"],
 };
 
 // Token runs that are ONE term and must match as an adjacent phrase, not as separate AND
