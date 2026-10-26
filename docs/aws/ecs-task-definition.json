@@ -1,0 +1,59 @@
+{
+  "family": "c4c-mcp",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/c4c-mcp-execution",
+  "ephemeralStorage": { "sizeInGiB": 21 },
+  "volumes": [
+    { "name": "c4c-data" },
+    { "name": "c4c-tmp" }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "c4c-mcp",
+      "image": "709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.0.2",
+      "essential": true,
+      "readonlyRootFilesystem": true,
+      "portMappings": [{ "containerPort": 8080, "protocol": "tcp" }],
+      "mountPoints": [
+        { "sourceVolume": "c4c-data", "containerPath": "/data" },
+        { "sourceVolume": "c4c-tmp", "containerPath": "/tmp" }
+      ],
+      "environment": [
+        { "name": "PORT", "value": "8080" },
+        { "name": "C4C_DATA_DIR", "value": "/data" },
+        { "name": "C4C_UPDATE_URL", "value": "https://mcp.claudeforcompliance.com/library" },
+        { "name": "C4C_UPDATE_INTERVAL_H", "value": "24" },
+        { "name": "C4C_STALE_DAYS", "value": "14" },
+        { "name": "C4C_USAGE_REPORT", "value": "0" },
+        { "name": "C4C_AUDIT_LOG", "value": "off" }
+      ],
+      "secrets": [
+        { "name": "C4C_LICENSE_KEY", "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:c4c/license-key" },
+        { "name": "C4C_AUTH_TOKEN", "valueFrom": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:c4c/auth-token" }
+      ],
+      "healthCheck": {
+        "command": ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 300
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/c4c-mcp",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "c4c",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ]
+}

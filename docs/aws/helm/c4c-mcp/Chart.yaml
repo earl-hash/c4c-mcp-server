@@ -1,0 +1,11 @@
+apiVersion: v2
+name: c4c-mcp-helm
+description: C4C regulatory MCP server for mortgage regulations, self-hosted. Research use only; not legal advice.
+type: application
+version: 1.0.2
+appVersion: "1.0.2"
+sources:
+  - https://github.com/earl-hash/c4c-mcp-server
+maintainers:
+  - name: CF Synergies, LLC
+    email: earl@cfsynergies.com

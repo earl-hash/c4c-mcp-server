@@ -1,6 +1,11 @@
 # C4C self-hosted regulatory MCP server. Build context: workers/mcp.
 #   docker build -t c4c-mcp .
 # A release image must contain server/library-public-key.pem, or it can never verify (so never install) a library.
+FROM node:24-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 FROM node:24-slim
 
 ENV NODE_ENV=production \
@@ -8,9 +13,14 @@ ENV NODE_ENV=production \
     PORT=8080 \
     NODE_USE_ENV_PROXY=1
 
+# The server never runs npm, corepack or yarn. Removing them drops their bundled
+# dependencies, which are the image's only scanner findings (AWS Marketplace scans every layer).
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+      /usr/local/bin/corepack /opt/yarn* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 WORKDIR /app
-COPY package.json package-lock.json .npmrc ./
-RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=deps /app/node_modules node_modules/
+COPY package.json ./
 
 COPY src/ src/
 COPY server/ server/
@@ -22,9 +32,10 @@ RUN if [ ! -f server/library-public-key.pem ] && [ "$ALLOW_NO_PUBLIC_KEY" != "1"
       exit 1; \
     fi
 
-RUN mkdir -p /data && chown node:node /data
+RUN mkdir -p /data && chown node:node /data && chmod 1777 /tmp
 USER node
-VOLUME /data
+# Declared volumes carry their ownership into platform-provided mounts (Fargate bind mounts start root-owned).
+VOLUME /data /tmp
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "c4c-mcp.fullname" . }}
+  labels:
+    {{- include "c4c-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "c4c-mcp.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "c4c-mcp.selector" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "c4c-mcp.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: c4c-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: C4C_DATA_DIR, value: /data }
+            - { name: C4C_UPDATE_URL, value: {{ .Values.config.updateUrl | quote }} }
+            - { name: C4C_UPDATE_INTERVAL_H, value: {{ .Values.config.updateIntervalHours | quote }} }
+            - { name: C4C_STALE_DAYS, value: {{ .Values.config.staleDays | quote }} }
+            - { name: C4C_USAGE_REPORT, value: {{ .Values.config.usageReport | quote }} }
+            - { name: C4C_WORKSPACE, value: {{ .Values.config.workspace | quote }} }
+            - { name: C4C_AUDIT_LOG, value: {{ .Values.config.auditLog | quote }} }
+            - { name: C4C_AUDIT_USER_HEADER, value: {{ .Values.config.auditUserHeader | quote }} }
+            - name: C4C_LICENSE_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.existingSecret }}, key: license-key, optional: true }
+            - name: C4C_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef: { name: {{ .Values.existingSecret }}, key: auth-token }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # Ready only once a library is installed (/healthz is 503 until then). Liveness checks the
+          # port, not /healthz, so a pod waiting for its first library is not restarted in a loop.
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "c4c-mcp.fullname" . }}-data
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ .Values.persistence.size }}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

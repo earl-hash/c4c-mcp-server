@@ -1,4 +1,4 @@
-# Claude for Compliance (C4C) self-hosted: data flow
+# C4C self-hosted: data flow
 
 Research only. C4C returns regulatory text and citations. It is not legal advice.
 
@@ -30,10 +30,11 @@ The diagram shows an AI tool inside your network. A cloud assistant reaches the 
 |---|---|---|
 | Documents you work on | Stay in your AI tool. C4C tools take only search terms and citations. | Not through C4C. Your AI tool's vendor sees whatever you give that tool. |
 | Prompts and questions to your AI tool | Stay with your AI tool. | Not through C4C. With a cloud assistant they go to that vendor. |
-| Search terms and citations your AI tool sends to C4C | Handled in memory by the container on your host. Not written to the library or the usage report. The container's console log records startup and update messages and, if a request fails internally, an error message with its stack trace; it does not log request bodies or answers on purpose, but an internal error message logged to the console may quote part of the request that caused it. | Not sent by C4C. With a cloud assistant, they arrive from and return through that vendor's cloud. |
+| Search terms and citations your AI tool sends to C4C | Handled in memory by the container on your host. Not written to the library or the usage report. The container's console log records startup and update messages and, if a request fails internally, an error message with its stack trace; it does not log request bodies or answers on purpose, but an internal error message logged to the console may quote part of the request that caused it. If you turn on the optional audit log, it records them as described below. | Not sent by C4C. With a cloud assistant, they arrive from and return through that vendor's cloud. |
 | Answers (regulation text, citations, library version and age) | Returned to your AI tool. | Not sent anywhere else by C4C. With a cloud assistant, they return through that vendor's cloud. |
 | Library updates | Downloaded by the container from the update URL: your internal mirror, or the C4C feed. | Inbound only. With a mirror, the container never leaves your network. |
 | License key | Not needed on the server when it updates from your mirror. With the C4C feed, sent as part of the GET. | Only when the server uses the C4C feed directly; this is the only thing C4C itself sends out |
+| Optional audit log (off by default) | With `C4C_AUDIT_LOG=stdout`, your console log (your collector, e.g. CloudWatch); with `file`, `/data/audit/` on your disk. One line per tool call: tool, the search terms or citations sent, citations and section ids returned, library version, outcome, client, caller address, and a user identity if your gateway supplies one. No regulation text, no bearer token. | No. C4C never sends it. |
 | Optional usage report | Written to `/data/usage-YYYY-MM.json` on your disk: counts per day, by tool name and document name; no query text, no user info. | No, unless you choose to send the file to us |
 
 ## Update calls, and how to keep them inside your network

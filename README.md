@@ -1,6 +1,6 @@
 # C4C: Mortgage Industry Regulations (self-hosted MCP server)
 
-Claude for Compliance (C4C) answers in the regulator's own words. This is the server behind
+C4C answers in the regulator's own words. This is the server behind
 the hosted C4C connector, packaged to run inside your own network: your AI tools ask it for
 regulatory text, and it returns verbatim sections with their citations, version and currency
 status. It never sends your questions, documents or answers anywhere, and it can run with no

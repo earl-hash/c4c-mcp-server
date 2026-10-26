@@ -1,4 +1,4 @@
-# Claude for Compliance (C4C): self-hosted install guide
+# C4C: self-hosted install guide
 
 This guide installs the C4C regulatory MCP server inside your own network. Your AI tools (Claude, ChatGPT, Copilot, internal agents) connect to it over MCP and read the regulation library from your own server. It never sends questions, documents or answers anywhere, and it does not need to contact C4C at all: rule updates can reach it through your own gates (see "Updates through your own gates" below). The only optional connection to C4C is the update download, which carries your license key. Whether questions and answers stay inside your network depends on the AI tool: an in-network agent or a self-hosted model keeps everything inside, while cloud assistants (ChatGPT, Claude connectors, Copilot Studio) connect from the vendor's cloud, so their questions and answers pass through that vendor under its terms (see "Connect your AI tools"). See `DATA-FLOW.md` for the full picture.
 
@@ -59,17 +59,21 @@ docker run -d --name c4c-mcp \
 | `C4C_STALE_DAYS` | `14` | After this many days without a new library, answers and `/healthz` report `stale`. |
 | `C4C_AUTH_TOKEN` | none (no auth) | If set, every `/mcp` request must send `Authorization: Bearer <token>`. Strongly recommended. |
 | `C4C_USAGE_REPORT` | `0` | Set `1` to write the optional local usage report (see below). |
+| `C4C_AUDIT_LOG` | `off` | Set `stdout` or `file` to keep an audit log of every tool call (see "Audit log" below). |
+| `C4C_AUDIT_USER_HEADER` | none | Name of a request header your gateway or proxy sets with the user's identity (for example `x-user-email`). Its value is recorded in the audit log. |
 | `C4C_WORKSPACE` | `0` | Set `1` to turn on the Decision Workspace: the `record_rules`, `propose_file_note` and `tag_record` tools and the `decision-workspace` playbook. These tools store nothing; file notes are drafts a person approves before saving them in your own loan system. |
 | `PORT` | `8080` | Listening port inside the container. |
 | `C4C_DATA_DIR` | `/data` | Library and report location. Keep it on a volume. |
 
-The image runs as a non-root user and works with a read-only root filesystem. Only `/data` is written.
+The image runs as a non-root user and works with a read-only root filesystem. Only `/data` and `/tmp` are written.
 
 ### First start
 
 If `/data` is empty and you have no license key, the server stays up in "no library" mode: `/healthz` returns 503 and tool calls answer "The regulation library is not installed yet". With a license key, the first library downloads automatically within a few minutes. Otherwise load one offline.
 
 ## Connect your AI tools
+
+Step-by-step recipes for each tool (Claude Code, Claude Desktop, Amazon Bedrock and AgentCore, Microsoft Foundry and Copilot Studio, Python, curl) are in `CONNECT.md`. To confirm an install works, run `docker exec c4c-mcp node server/verify-install.mjs --url http://127.0.0.1:8080/mcp` (or `scripts/verify-install.sh` / `.ps1` from any machine).
 
 The MCP endpoint is `http://<host>:8080/mcp` (streamable HTTP). Put it behind your own TLS reverse proxy if clients connect across a network you do not control.
 
@@ -78,8 +82,9 @@ Where the client runs matters:
 - Clients inside your network (an internal agent, Claude Code on a staff machine talking to the server directly, or an agent driving a self-hosted model) reach the server over your network. With a self-hosted model, questions and answers stay inside your network.
 - Cloud assistants (ChatGPT connectors, Claude custom connectors added in claude.ai, Copilot Studio) call MCP servers from the vendor's cloud, not from your network. To use them, the server must be reachable from the internet over HTTPS: put it behind a TLS reverse proxy with a public name, and set `C4C_AUTH_TOKEN` so only requests carrying the token are served. The questions those assistants send to C4C, and the regulation text C4C returns, then pass through that vendor under its terms, as does everything else you type into that assistant.
 
-- Claude (Desktop or Claude Code): add a custom connector or MCP server with that URL. If you set `C4C_AUTH_TOKEN`, add the header `Authorization: Bearer <token>`.
-- ChatGPT: add it as a custom MCP connector (Developer mode) using the same URL and header. Your workspace admin controls whether custom connectors are allowed.
+- Claude Code: `claude mcp add --transport http c4c <url> --header "Authorization: Bearer <token>"`, or a shared `.mcp.json` (see `CONNECT.md`).
+- Claude Desktop: custom connectors added in Claude settings connect from Anthropic's cloud and cannot reach a server inside your network. For an internal server, add a local entry to `claude_desktop_config.json` that runs a bridge such as `mcp-remote` (see `CONNECT.md`).
+- ChatGPT: custom connectors connect from OpenAI's cloud and support OAuth or no authentication; they cannot send a fixed bearer token. They are not a fit for this server's bearer-token setup.
 - Microsoft Copilot (Copilot Studio): add an MCP server tool pointing at the URL, with the bearer token as the authentication header.
 - Internal agents: any MCP client library works. Send JSON-RPC `initialize`, then `tools/call`, to the URL with `Accept: application/json, text/event-stream`.
 
@@ -164,12 +169,30 @@ With `C4C_USAGE_REPORT=1` the server writes counts to `/data/usage-YYYY-MM.json`
 
 It holds only counts per day, by tool name and document name. There is no query text, no user or client information. It is never sent anywhere. If you want us to see it (for example to size a renewal), you send the file yourself.
 
+## Audit log (optional, off by default)
+
+For examiners and internal audit: a record, kept in your environment, of what your AI tools asked C4C and what C4C returned. With `C4C_AUDIT_LOG=stdout` the server writes one JSON line per tool call to its console, so your log collector (CloudWatch, Azure Monitor, Splunk) keeps it. With `C4C_AUDIT_LOG=file` it appends to `/data/audit/audit-YYYY-MM-DD.jsonl` (keep `/data` on a volume).
+
+```
+{"type":"c4c_audit","ts":"2026-10-25T23:35:51.754Z","request_id":"853d595e-...","rpc_id":6,
+ "tool":"search_regs","arguments":{"query":"large deposits"},
+ "citations_returned":["B3-4.2-02","B3-4.3-09","Freddie Mac Guide 5501.1"],
+ "sections_returned":["fnma-sel-b3-4-2-02::fnma-sel-b3-4.2-02-full", "..."],
+ "outcome":"ok","duration_ms":227,"library_version":"2026-10-22.1",
+ "user":"uw1@lender.example","client":"claude-code/2.0","remote":"10.0.4.12"}
+```
+
+- `arguments` are what the AI tool sent: search terms, citations or quoted text (cut at 4,000 characters). If your AI tool puts borrower details in a search, they are recorded here, so treat the log like other internal records and set retention to match your policy.
+- `citations_returned` and `sections_returned` name what came back, so a reviewer can pull the same text later from the same `library_version`. The regulation text itself is not copied into the log.
+- `user` appears only when you set `C4C_AUDIT_USER_HEADER` and your gateway sends that header. The bearer token is never logged. Failed bearer checks are logged as `{"event":"auth_failed", ...}` with the caller address.
+- The log is never sent anywhere by C4C. A write failure is reported once on the console and never stops the server.
+
 ## SBOM
 
 To produce a software bill of materials for your security review:
 
 ```
-docker sbom c4c-mcp:<tag> --format spdx-json > sbom.spdx.json
+docker scout sbom --format spdx c4c-mcp:<tag> > sbom.spdx.json
 ```
 
 (or `syft c4c-mcp:<tag> -o spdx-json=sbom.spdx.json`).

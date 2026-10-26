@@ -29,6 +29,7 @@ if (usage) setInterval(() => usage.flush(), 3600_000).unref();
 
 const server = createNodeServer({ config, getCorpus: () => corpus, getLibrary: () => library, record: usage?.record });
 server.listen(config.port, () => console.log(`C4C MCP listening on :${config.port}`));
+if (config.auditLog !== "off") console.log(`audit log on: ${config.auditLog === "file" ? `${config.dataDir}/audit` : "stdout"}`);
 
 let stopUpdater = () => {};
 if (updatesEnabled(config)) {

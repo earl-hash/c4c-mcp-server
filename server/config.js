@@ -1,5 +1,6 @@
 // Environment configuration for the self-hosted C4C MCP server.
 import { join } from "node:path";
+import { parseAuditMode } from "./audit-log.js";
 
 const int = (v, d) => {
   const n = Number.parseInt(v ?? "", 10);
@@ -29,6 +30,10 @@ export function readConfig(env = process.env) {
     staleDays: int(env.C4C_STALE_DAYS, 14),
     authToken: env.C4C_AUTH_TOKEN?.trim() || null,
     usageReport: env.C4C_USAGE_REPORT === "1" || env.C4C_USAGE_REPORT === "true",
+    // Audit log of tool calls to the customer's console or /data/audit (off, stdout, file).
+    auditLog: parseAuditMode(env.C4C_AUDIT_LOG),
+    // Request header carrying the user's identity, set by the customer's gateway (e.g. x-user-email).
+    auditUserHeader: env.C4C_AUDIT_USER_HEADER?.trim().toLowerCase() || null,
     // Decision Workspace tools and playbook (record_rules, propose_file_note, tag_record).
     workspace: env.C4C_WORKSPACE === "1",
     updateIntervalH: int(env.C4C_UPDATE_INTERVAL_H, 24),

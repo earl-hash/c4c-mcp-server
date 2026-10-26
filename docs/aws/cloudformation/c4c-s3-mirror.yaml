@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  C4C library mirror: a private S3 bucket that the C4C container reads through an S3
+  gateway VPC endpoint, so the container never contacts C4C or the internet for updates.
+  Research use only; not legal advice. CF Synergies, LLC.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: "Network" }
+        Parameters: [VpcId, CreateGatewayEndpoint, RouteTableIds, ExistingVpcEndpointId]
+      - Label: { default: "Bucket" }
+        Parameters: [BucketName]
+    ParameterLabels:
+      VpcId: { default: "VPC the C4C container runs in" }
+      CreateGatewayEndpoint: { default: "Create a new S3 gateway endpoint?" }
+      RouteTableIds: { default: "Route tables of the private subnets (when creating the endpoint)" }
+      ExistingVpcEndpointId: { default: "Existing S3 gateway endpoint ID (when not creating one)" }
+      BucketName: { default: "Bucket name (blank = generated)" }
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The VPC of the C4C container. The bucket is created in this stack's Region, which must be the VPC's Region.
+  CreateGatewayEndpoint:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      true creates an S3 gateway endpoint on the route tables below. Choose false if those
+      route tables already have an S3 gateway endpoint (a route table can have only one)
+      and enter its ID instead.
+  RouteTableIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: Comma-separated route table IDs (rtb-...) used by the C4C task subnets. Required when creating the endpoint.
+  ExistingVpcEndpointId:
+    Type: String
+    Default: ""
+    Description: Existing S3 gateway endpoint ID (vpce-...). Used only when not creating one.
+  BucketName:
+    Type: String
+    Default: ""
+    Description: Optional globally unique bucket name. Leave blank and CloudFormation picks one.
+
+Conditions:
+  CreateEndpoint: !Equals [!Ref CreateGatewayEndpoint, "true"]
+  HasBucketName: !Not [!Equals [!Ref BucketName, ""]]
+
+Rules:
+  EndpointInputs:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref CreateGatewayEndpoint, "false"]
+          - !Not [!EachMemberEquals [!Ref RouteTableIds, ""]]
+        AssertDescription: RouteTableIds is required when CreateGatewayEndpoint is true.
+      - Assert: !Or
+          - !Equals [!Ref CreateGatewayEndpoint, "true"]
+          - !Not [!Equals [!Ref ExistingVpcEndpointId, ""]]
+        AssertDescription: ExistingVpcEndpointId is required when CreateGatewayEndpoint is false.
+
+Resources:
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      RouteTableIds: !Ref RouteTableIds
+
+  MirrorBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If [HasBucketName, !Ref BucketName, !Ref AWS::NoValue]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-library-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  MirrorBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MirrorBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: C4CContainerReadThroughVpcEndpoint
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${MirrorBucket.Arn}/c4c/*"
+            Condition:
+              StringEquals:
+                aws:SourceVpce: !If [CreateEndpoint, !Ref S3GatewayEndpoint, !Ref ExistingVpcEndpointId]
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt MirrorBucket.Arn
+              - !Sub "${MirrorBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+Outputs:
+  BucketName:
+    Description: Mirror bucket. Fill it under the c4c/ prefix from your gate job.
+    Value: !Ref MirrorBucket
+  UpdateUrl:
+    Description: Use this as UpdateUrl in the C4C ECS stack (leave LicenseKey blank there).
+    Value: !Sub "https://${MirrorBucket}.s3.${AWS::Region}.${AWS::URLSuffix}/c4c"
+  VpcEndpointId:
+    Description: S3 gateway endpoint the bucket policy trusts.
+    Value: !If [CreateEndpoint, !Ref S3GatewayEndpoint, !Ref ExistingVpcEndpointId]
+  SyncCommands:
+    Description: Run at your gate after the mirror tool writes /srv/c4c-mirror (manifest copied last).
+    Value: !Sub >-
+      aws s3 sync /srv/c4c-mirror s3://${MirrorBucket}/c4c --exclude "manifest.*" &&
+      aws s3 cp /srv/c4c-mirror/manifest.sig s3://${MirrorBucket}/c4c/manifest.sig &&
+      aws s3 cp /srv/c4c-mirror/manifest.json s3://${MirrorBucket}/c4c/manifest.json

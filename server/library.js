@@ -390,12 +390,14 @@ export async function checkForUpdate({
   if (!publicKey) return { installed: false, reason: "no_public_key" };
   if (!updateUrlOk(config.updateUrl)) return { installed: false, reason: "bad_url", detail: "C4C_UPDATE_URL must be https (plain http only to localhost / 127.0.0.1)" };
   const base = config.updateUrl.replace(/\/+$/, "");
+  // The license key goes only to the C4C feed, never to a customer's mirror (it lives at their gate).
+  const key = config.mirror ? null : config.licenseKey;
   let manifest;
   let tmp = null;
   try {
     const small = async (name, max) => {
       const signal = AbortSignal.timeout(timeoutMs);
-      return readCapped(await feedGet(fetchFn, `${base}/${name}`, config.licenseKey, signal), max, name);
+      return readCapped(await feedGet(fetchFn, `${base}/${name}`, key, signal), max, name);
     };
     const manifestBytes = await small("manifest.json", MAX_MANIFEST_BYTES);
     const sigBytes = await small("manifest.sig", MAX_SIG_BYTES);
@@ -408,7 +410,7 @@ export async function checkForUpdate({
     }
     try { fs.mkdirSync(config.dataDir, { recursive: true }); } catch (err) { throw asDiskError(err); }
     tmp = path.join(config.dataDir, `download-${unique()}.gz.part`);
-    await download(fetchFn, `${base}/${manifest.version}/corpus.sqlite.gz`, config.licenseKey, tmp,
+    await download(fetchFn, `${base}/${manifest.version}/corpus.sqlite.gz`, key, tmp,
       { maxBytes: maxGzBytes, headerMs: timeoutMs, idleMs, totalMs: downloadTimeoutMs });
     const r = await installLibrary({ gzPath: tmp, manifestBytes, sigBytes, publicKey, dataDir: config.dataDir, maxDbBytes, log });
     return { installed: true, manifest: r.manifest, path: r.path };

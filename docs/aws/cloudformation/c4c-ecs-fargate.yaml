@@ -1,0 +1,494 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  C4C self-hosted regulatory MCP server on Amazon ECS (Fargate) behind an internal
+  Application Load Balancer, in your existing VPC and private subnets. Research use
+  only; not legal advice. CF Synergies, LLC.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: "Network (required)" }
+        Parameters: [VpcId, SubnetIds, AllowedClientCidr]
+      - Label: { default: "Container" }
+        Parameters: [ImageUri, CpuArchitecture, Cpu, Memory, ExistingClusterArn]
+      - Label: { default: "Library updates" }
+        Parameters: [UpdateUrl, LicenseKey, UpdateIntervalHours, StaleDays]
+      - Label: { default: "Logging" }
+        Parameters: [AuditLog, AuditUserHeader, LogRetentionDays]
+      - Label: { default: "TLS and DNS (optional)" }
+        Parameters: [CertificateArn, PrivateHostedZoneId, RecordName]
+      - Label: { default: "Advanced" }
+        Parameters: [HealthCheckGracePeriodSeconds]
+    ParameterLabels:
+      VpcId: { default: "VPC" }
+      SubnetIds: { default: "Private subnets (2 or more, different Availability Zones)" }
+      AllowedClientCidr: { default: "Client network allowed to reach the endpoint (CIDR)" }
+      ImageUri: { default: "Container image URI" }
+      CpuArchitecture: { default: "CPU architecture" }
+      Cpu: { default: "Task CPU units" }
+      Memory: { default: "Task memory (MiB)" }
+      ExistingClusterArn: { default: "Existing ECS cluster ARN (blank creates one)" }
+      UpdateUrl: { default: "Library update URL" }
+      LicenseKey: { default: "C4C license key (only for the direct C4C feed)" }
+      UpdateIntervalHours: { default: "Update check interval (hours)" }
+      StaleDays: { default: "Days before the library is marked stale" }
+      AuditLog: { default: "Audit log" }
+      AuditUserHeader: { default: "Audit log user header (optional)" }
+      LogRetentionDays: { default: "Log retention (days)" }
+      CertificateArn: { default: "ACM certificate ARN (blank uses HTTP on port 80)" }
+      PrivateHostedZoneId: { default: "Private hosted zone ID (optional)" }
+      RecordName: { default: "DNS name in that zone (optional)" }
+      HealthCheckGracePeriodSeconds: { default: "Health-check grace period (seconds)" }
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC to run in.
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >-
+      Two or more private subnets in different Availability Zones. They need a route to
+      Amazon ECR, Secrets Manager and CloudWatch Logs (NAT gateway or VPC endpoints).
+  AllowedClientCidr:
+    Type: String
+    Description: >-
+      Only this network may reach the load balancer, for example the subnet of your AI
+      agents or your corporate range. Avoid 0.0.0.0/0.
+    AllowedPattern: '^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})$'
+    ConstraintDescription: Must be an IPv4 CIDR such as 10.0.0.0/16.
+  ImageUri:
+    Type: String
+    Default: 709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.0.2
+    Description: >-
+      C4C image. Your account must be subscribed to the free AWS Marketplace listing.
+      Change the tag here to upgrade.
+  CpuArchitecture:
+    Type: String
+    Default: X86_64
+    AllowedValues: [X86_64, ARM64]
+    Description: ARM64 runs on Graviton and costs about 20 percent less. The image supports both.
+  Cpu:
+    Type: String
+    Default: "512"
+    AllowedValues: ["256", "512", "1024", "2048"]
+    Description: "Fargate CPU units (512 = 0.5 vCPU). Valid pairs: 256 with 512-2048 MiB, 512 with 1024-4096, 1024 with 2048-8192, 2048 with 4096-16384."
+  Memory:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "3072", "4096", "8192"]
+    Description: Task memory in MiB. About 400 MiB is used under load; 1024 is recommended.
+  ExistingClusterArn:
+    Type: String
+    Default: ""
+    Description: Leave blank to create a new ECS cluster for C4C.
+  UpdateUrl:
+    Type: String
+    Default: https://mcp.claudeforcompliance.com/library
+    AllowedPattern: '^https://.+'
+    ConstraintDescription: Must start with https://
+    Description: >-
+      The C4C feed (default), or your own mirror such as
+      https://<bucket>.s3.<region>.amazonaws.com/c4c. With your own mirror no license key
+      is sent and C4C is never contacted.
+  LicenseKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: >-
+      Free license key, needed only with the C4C feed. Leave blank for your own mirror or
+      offline use. Stored in Secrets Manager when given.
+  UpdateIntervalHours:
+    Type: Number
+    Default: 24
+    MinValue: 1
+    MaxValue: 720
+    Description: How often the container checks for a new library.
+  StaleDays:
+    Type: Number
+    Default: 14
+    MinValue: 1
+    MaxValue: 365
+    Description: After this many days without a new library, answers and /healthz report stale.
+  AuditLog:
+    Type: String
+    Default: "off"
+    AllowedValues: ["off", "stdout", "file"]
+    Description: >-
+      off = none. stdout = one JSON line per tool call to CloudWatch Logs. file = to
+      /data/audit (lost when the task is replaced, since /data is ephemeral on Fargate).
+  AuditUserHeader:
+    Type: String
+    Default: ""
+    AllowedPattern: "^[A-Za-z0-9-]*$"
+    Description: >-
+      Optional. Name of a request header your gateway or proxy sets with the user's identity
+      (for example x-user-email). Its value is recorded in the audit log. Leave empty if none.
+  LogRetentionDays:
+    Type: Number
+    Default: 90
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653]
+    Description: CloudWatch Logs retention for the container log group.
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ACM certificate ARN in this Region. When set, the load balancer listens on HTTPS 443
+      only; the certificate must cover the DNS name clients use. Blank = HTTP on port 80.
+  PrivateHostedZoneId:
+    Type: String
+    Default: ""
+    Description: Route 53 private hosted zone ID for a friendly name. Leave blank to use the load balancer DNS name.
+  RecordName:
+    Type: String
+    Default: ""
+    Description: Full DNS name to create in that zone, for example c4c.internal.example.com.
+  HealthCheckGracePeriodSeconds:
+    Type: Number
+    Default: 600
+    MinValue: 60
+    MaxValue: 7200
+    Description: >-
+      /healthz returns 503 until the first library is installed (normally within a
+      minute). ECS ignores load balancer health checks for this long after a task starts.
+
+Conditions:
+  CreateCluster: !Equals [!Ref ExistingClusterArn, ""]
+  HasLicenseKey: !Not [!Equals [!Ref LicenseKey, ""]]
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+  HasDnsName: !And
+    - !Not [!Equals [!Ref PrivateHostedZoneId, ""]]
+    - !Not [!Equals [!Ref RecordName, ""]]
+
+Resources:
+  # ---------- Secrets ----------
+  AuthTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Name: !Sub "${AWS::StackName}/c4c/auth-token"
+      Description: C4C MCP bearer token. Every client sends it as "Authorization Bearer <token>". Generated, never typed.
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+        IncludeSpace: false
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  LicenseKeySecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Condition: HasLicenseKey
+    Properties:
+      Name: !Sub "${AWS::StackName}/c4c/license-key"
+      Description: C4C license key for the direct C4C library feed.
+      SecretString: !Ref LicenseKey
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  # ---------- IAM (execution role only; the container itself needs no AWS permissions) ----------
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Lets ECS pull the C4C image, write logs and read the C4C secrets. Not available to the container.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Policies:
+        - PolicyName: c4c-read-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !If
+                  - HasLicenseKey
+                  - [!Ref AuthTokenSecret, !Ref LicenseKeySecret]
+                  - [!Ref AuthTokenSecret]
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  # ---------- Logs ----------
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/ecs/${AWS::StackName}/c4c-mcp"
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  # ---------- Security groups ----------
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: C4C internal load balancer. Inbound only from the allowed client network.
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !If [HasCertificate, 443, 80]
+          ToPort: !If [HasCertificate, 443, 80]
+          CidrIp: !Ref AllowedClientCidr
+          Description: MCP clients
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          DestinationSecurityGroupId: !Ref TaskSecurityGroup
+          Description: Load balancer to C4C container
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}-c4c-alb" }
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: C4C task. Inbound 8080 only from the load balancer; outbound HTTPS only.
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS to ECR, Secrets Manager, CloudWatch Logs and the library source (C4C feed or your S3 mirror)
+      Tags:
+        - { Key: Name, Value: !Sub "${AWS::StackName}-c4c-task" }
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  TaskIngressFromLoadBalancer:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref TaskSecurityGroup
+      IpProtocol: tcp
+      FromPort: 8080
+      ToPort: 8080
+      SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      Description: Load balancer to C4C container
+
+  # ---------- Load balancer ----------
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internal
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref LoadBalancerSecurityGroup]
+      LoadBalancerAttributes:
+        - { Key: routing.http.drop_invalid_header_fields.enabled, Value: "true" }
+        # MCP streamable HTTP can hold a response stream open; allow 5 minutes idle.
+        - { Key: idle_timeout.timeout_seconds, Value: "300" }
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /healthz
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: "200" }
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "30" }
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: !If [HasCertificate, 443, 80]
+      Protocol: !If [HasCertificate, HTTPS, HTTP]
+      Certificates: !If
+        - HasCertificate
+        - [{ CertificateArn: !Ref CertificateArn }]
+        - !Ref AWS::NoValue
+      SslPolicy: !If [HasCertificate, ELBSecurityPolicy-TLS13-1-2-2021-06, !Ref AWS::NoValue]
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasDnsName
+    Properties:
+      HostedZoneId: !Ref PrivateHostedZoneId
+      Name: !Ref RecordName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
+
+  # ---------- ECS ----------
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Condition: CreateCluster
+    Properties:
+      ClusterSettings:
+        - { Name: containerInsights, Value: disabled }
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${AWS::StackName}-c4c-mcp"
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+        CpuArchitecture: !Ref CpuArchitecture
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      # No TaskRoleArn: the container gets no AWS credentials.
+      Volumes:
+        # Task-level ephemeral storage (Fargate bind mounts). The image declares VOLUME /data
+        # owned by UID 1000, so ECS copies that ownership; /tmp has no VOLUME directive and is
+        # created root-owned, which is why TMPDIR points at /data below.
+        - Name: c4c-data
+        - Name: c4c-tmp
+      ContainerDefinitions:
+        - Name: c4c-mcp
+          Image: !Ref ImageUri
+          Essential: true
+          User: "1000"
+          ReadonlyRootFilesystem: true
+          LinuxParameters:
+            Capabilities:
+              Drop: [ALL]
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          MountPoints:
+            - { SourceVolume: c4c-data, ContainerPath: /data, ReadOnly: false }
+            - { SourceVolume: c4c-tmp, ContainerPath: /tmp, ReadOnly: false }
+          Environment:
+            - { Name: PORT, Value: "8080" }
+            - { Name: C4C_DATA_DIR, Value: /data }
+            - { Name: C4C_UPDATE_URL, Value: !Ref UpdateUrl }
+            - { Name: C4C_UPDATE_INTERVAL_H, Value: !Ref UpdateIntervalHours }
+            - { Name: C4C_STALE_DAYS, Value: !Ref StaleDays }
+            - { Name: C4C_USAGE_REPORT, Value: "0" }
+            - { Name: C4C_AUDIT_LOG, Value: !Ref AuditLog }
+            - { Name: C4C_AUDIT_USER_HEADER, Value: !Ref AuditUserHeader }
+            - { Name: TMPDIR, Value: /data }
+            - { Name: SQLITE_TMPDIR, Value: /data }
+          Secrets: !If
+            - HasLicenseKey
+            - - { Name: C4C_AUTH_TOKEN, ValueFrom: !Ref AuthTokenSecret }
+              - { Name: C4C_LICENSE_KEY, ValueFrom: !Ref LicenseKeySecret }
+            - - { Name: C4C_AUTH_TOKEN, ValueFrom: !Ref AuthTokenSecret }
+          # Liveness only: any HTTP answer (200 or 503 no_library) means the process is up.
+          # Readiness (library installed) is the load balancer check on /healthz with 200.
+          HealthCheck:
+            Command:
+              - CMD
+              - node
+              - -e
+              - "fetch('http://127.0.0.1:8080/healthz').then(()=>process.exit(0)).catch(()=>process.exit(1))"
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: c4c
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      Cluster: !If [CreateCluster, !Ref Cluster, !Ref ExistingClusterArn]
+      LaunchType: FARGATE
+      PlatformVersion: LATEST
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      EnableExecuteCommand: false
+      PropagateTags: SERVICE
+      HealthCheckGracePeriodSeconds: !Ref HealthCheckGracePeriodSeconds
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups: [!Ref TaskSecurityGroup]
+      LoadBalancers:
+        - ContainerName: c4c-mcp
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
+      Tags:
+        - { Key: Product, Value: C4C }
+        - { Key: Vendor, Value: CF Synergies LLC }
+
+Outputs:
+  McpEndpoint:
+    Description: MCP endpoint for your AI tools (send the bearer token with every request).
+    Value: !Join
+      - ""
+      - - !If [HasCertificate, "https://", "http://"]
+        - !If [HasDnsName, !Ref RecordName, !GetAtt LoadBalancer.DNSName]
+        - /mcp
+  HealthUrl:
+    Description: Returns 200 once the library is installed, 503 no_library before.
+    Value: !Join
+      - ""
+      - - !If [HasCertificate, "https://", "http://"]
+        - !If [HasDnsName, !Ref RecordName, !GetAtt LoadBalancer.DNSName]
+        - /healthz
+  AuthTokenSecretArn:
+    Description: Secrets Manager secret holding the generated bearer token.
+    Value: !Ref AuthTokenSecret
+  GetTokenCommand:
+    Description: Run this (with permission to read the secret) to print the bearer token.
+    Value: !Sub "aws secretsmanager get-secret-value --secret-id ${AuthTokenSecret} --region ${AWS::Region} --query SecretString --output text"
+  LogGroupName:
+    Description: CloudWatch Logs group for the container.
+    Value: !Ref LogGroup
+  LoadBalancerDnsName:
+    Description: Internal load balancer DNS name.
+    Value: !GetAtt LoadBalancer.DNSName
+  ClusterName:
+    Description: ECS cluster running the service.
+    Value: !If [CreateCluster, !Ref Cluster, !Ref ExistingClusterArn]
+  ServiceName:
+    Description: ECS service name.
+    Value: !GetAtt Service.Name

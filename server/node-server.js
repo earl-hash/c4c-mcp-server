@@ -2,13 +2,14 @@
 // optional bearer auth, and a safe no-library mode. Wraps the unchanged createServer();
 // deliberately NOT the Cloudflare default export (no budget, metrics, .well-known, OpenAI routes).
 import http from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomUUID } from "node:crypto";
 import { createMcpHandler } from "agents/mcp/server";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createServer } from "../src/server.js";
 import { listToolsInProcess } from "../src/inprocess.js";
 import { libraryInfo } from "../src/library-info.js";
+import { createAuditLogger, toolCallsIn, responsesIn, returnedIn, boundedArgs, clip } from "./audit-log.js";
 
 export const NO_LIBRARY_MESSAGE =
   "The regulation library is not installed yet. Set C4C_LICENSE_KEY or a mirror C4C_UPDATE_URL so the server can fetch it, or load a library file, then retry.";
@@ -74,20 +75,23 @@ async function readBody(req) {
   });
 }
 
-async function toWebRequest(req) {
+async function toWebRequest(req, onBody) {
   const headers = new Headers();
   for (const [k, v] of Object.entries(req.headers)) {
     if (Array.isArray(v)) v.forEach((x) => headers.append(k, x)); else if (v != null) headers.set(k, v);
   }
   const init = { method: req.method, headers };
-  if (req.method !== "GET" && req.method !== "HEAD") init.body = await readBody(req);
+  if (req.method !== "GET" && req.method !== "HEAD") { init.body = await readBody(req); onBody?.(init.body); }
   const host = (req.headers.host ?? "").trim();
   let url;
   try { url = new URL(req.url, `http://${host}`); if (!host) throw new Error("empty"); } catch { throw new BadHost(); }
   return new Request(url, init);
 }
 
-async function sendWebResponse(res, response) {
+// The audit log reads at most this much of a response to find the citations returned.
+const AUDIT_CAPTURE_BYTES = 2 * 1024 * 1024;
+
+async function sendWebResponse(res, response, capture) {
   const headers = {};
   response.headers.forEach((v, k) => { headers[k] = v; });
   res.writeHead(response.status, headers);
@@ -98,6 +102,7 @@ async function sendWebResponse(res, response) {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (capture && capture.bytes < AUDIT_CAPTURE_BYTES) { capture.chunks.push(Buffer.from(value)); capture.bytes += value.length; }
       res.write(value);
     }
   } finally {
@@ -113,8 +118,41 @@ export function workspaceEnv(config, env) {
   return { ...env, WORKSPACE_TOOLS: "1", PLAYBOOKS_PREVIEW: preview };
 }
 
-export function createNodeServer({ config, getCorpus, getLibrary, record }) {
+// Who sent the request, for the audit log: the identity header the customer's gateway sets
+// (C4C_AUDIT_USER_HEADER), the client's user agent, and the caller address.
+function caller(req, config) {
+  const fwd = clip(req.headers["x-forwarded-for"]);
+  return {
+    ...(config.auditUserHeader ? { user: clip(req.headers[config.auditUserHeader]) } : {}),
+    client: clip(req.headers["user-agent"]),
+    remote: fwd ? fwd.split(",")[0].trim() : (req.socket?.remoteAddress ?? null),
+  };
+}
+
+export function createNodeServer({ config, getCorpus, getLibrary, record, audit: auditIn }) {
   const ctx = { waitUntil() {}, passThroughOnException() {} };
+  const audit = auditIn === undefined ? createAuditLogger({ mode: config.auditLog, dataDir: config.dataDir }) : auditIn;
+
+  function auditCalls(req, calls, capture, started, lib) {
+    const byId = new Map(responsesIn(Buffer.concat(capture.chunks).toString("utf8")).map((r) => [JSON.stringify(r.id ?? null), r]));
+    const who = caller(req, config);
+    for (const c of calls) {
+      const r = byId.get(JSON.stringify(c.id));
+      const got = r?.result ? returnedIn(r.result) : { citations: [], sections: [] };
+      audit.write({
+        request_id: randomUUID(),
+        rpc_id: c.id,
+        tool: c.name,
+        arguments: boundedArgs(c.arguments),
+        citations_returned: got.citations,
+        sections_returned: got.sections,
+        outcome: !r ? "no_response" : r.error || r.result?.isError ? "error" : "ok",
+        duration_ms: Date.now() - started,
+        library_version: lib?.version ?? null,
+        ...who,
+      });
+    }
+  }
 
   async function handleMcp(req, res) {
     const corpus = getCorpus();
@@ -122,9 +160,16 @@ export function createNodeServer({ config, getCorpus, getLibrary, record }) {
     const factory = corpus
       ? () => createServer(workspaceEnv(config, corpus.env), { ...(record ? { record } : {}), library: lib ? libraryInfo(lib, new Date(), config.staleDays) : null })
       : () => createNoLibraryServer();
-    const webReq = await toWebRequest(req);
+    const started = Date.now();
+    let calls = [];
+    const webReq = await toWebRequest(req, audit ? (body) => { calls = toolCallsIn(body); } : undefined);
     const response = await createMcpHandler(factory)(webReq, corpus?.env ?? {}, ctx);
-    await sendWebResponse(res, response);
+    const capture = audit && calls.length ? { chunks: [], bytes: 0 } : null;
+    try {
+      await sendWebResponse(res, response, capture);
+    } finally {
+      if (capture) auditCalls(req, calls, capture, started, lib);
+    }
   }
 
   return http.createServer(async (req, res) => {
@@ -141,6 +186,7 @@ export function createNodeServer({ config, getCorpus, getLibrary, record }) {
       }
       if (path === "/mcp") {
         if (config.authToken && !bearerOk(req.headers.authorization, config.authToken)) {
+          audit?.write({ event: "auth_failed", ...caller(req, config) });
           res.setHeader("www-authenticate", "Bearer");
           return json(res, 401, { error: "unauthorized" });
         }

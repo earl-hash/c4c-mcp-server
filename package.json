@@ -1,7 +1,7 @@
 {
   "name": "c4c-mcp",
-  "version": "1.0.0",
-  "description": "Claude for Compliance self-hosted regulatory MCP server. Research only, not legal advice.",
+  "version": "1.0.1",
+  "description": "C4C self-hosted regulatory MCP server. Research only, not legal advice.",
   "keywords": [],
   "author": "CF Synergies, LLC",
   "license": "Elastic-2.0",
@@ -16,7 +16,7 @@
     "@modelcontextprotocol/client": "^2.3.1",
     "@modelcontextprotocol/server": "^2.3.1",
     "agents": "^0.27.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "homepage": "https://claudeforcompliance.com/mcp/",
   "scripts": {

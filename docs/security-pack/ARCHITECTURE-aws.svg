@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#1a202c">
+  <title>C4C Private: typical AWS deployment</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2d3748"/>
+    </marker>
+    <marker id="arrowOpt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#718096"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="900" fill="#ffffff"/>
+  <text x="20" y="32" font-size="18" font-weight="bold">C4C Private: typical AWS deployment (ECS Fargate, private subnets)</text>
+  <text x="20" y="52" font-size="12" fill="#4a5568">Solid arrows: always used. Grey dashed arrows: optional. Red dashed lines: trust boundaries (TB1 to TB3). Numbers match the table in ARCHITECTURE.md.</text>
+
+  <!-- Zone: corporate network -->
+  <rect x="20" y="70" width="250" height="560" rx="8" fill="#f0fff4" stroke="#38a169" stroke-width="1.5"/>
+  <text x="35" y="94" font-size="14" font-weight="bold">Corporate network or VPN</text>
+  <rect x="40" y="130" width="210" height="96" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="145" y="154" text-anchor="middle" font-weight="bold">Staff AI clients</text>
+  <text x="145" y="174" text-anchor="middle">Claude Desktop / Code,</text>
+  <text x="145" y="192" text-anchor="middle">internal MCP agents</text>
+  <text x="145" y="210" text-anchor="middle" font-size="12" fill="#4a5568">hold the bearer token</text>
+
+  <!-- Zone: AWS account -->
+  <rect x="300" y="70" width="600" height="700" rx="8" fill="#fffaf0" stroke="#d69e2e" stroke-width="1.5"/>
+  <text x="315" y="94" font-size="14" font-weight="bold">Lender AWS account (your region)</text>
+
+  <!-- VPC -->
+  <rect x="320" y="110" width="400" height="640" rx="8" fill="#ebf8ff" stroke="#3182ce" stroke-width="1.5"/>
+  <text x="335" y="132" font-size="14" font-weight="bold">Lender VPC</text>
+
+  <!-- Private subnets -->
+  <rect x="340" y="145" width="280" height="440" rx="6" fill="#f7fbff" stroke="#3182ce" stroke-dasharray="6 4"/>
+  <text x="352" y="165" font-size="12" fill="#2b6cb0">Private subnets (no public IPs)</text>
+
+  <rect x="360" y="180" width="240" height="66" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="480" y="204" text-anchor="middle" font-weight="bold">Internal ALB</text>
+  <text x="480" y="224" text-anchor="middle">HTTPS :443, ACM certificate</text>
+
+  <rect x="360" y="296" width="240" height="124" rx="6" fill="#ffffff" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="480" y="320" text-anchor="middle" font-weight="bold">ECS Fargate task: c4c-mcp</text>
+  <text x="480" y="340" text-anchor="middle">HTTP :8080  /mcp  /healthz</text>
+  <text x="480" y="358" text-anchor="middle">non-root, read-only root FS</text>
+  <text x="480" y="376" text-anchor="middle">no IAM permissions of its own</text>
+  <text x="480" y="394" text-anchor="middle">/data: signed library (task storage)</text>
+  <text x="480" y="410" text-anchor="middle" font-size="12" fill="#4a5568">optional: usage report, audit file</text>
+
+  <rect x="360" y="470" width="170" height="90" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="445" y="494" text-anchor="middle" font-weight="bold">Bedrock agent or</text>
+  <text x="445" y="512" text-anchor="middle" font-weight="bold">AgentCore Gateway</text>
+  <text x="445" y="532" text-anchor="middle">optional in-VPC</text>
+  <text x="445" y="549" text-anchor="middle">MCP client</text>
+
+  <rect x="632" y="420" width="78" height="56" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="671" y="443" text-anchor="middle" font-size="12">S3 gateway</text>
+  <text x="671" y="460" text-anchor="middle" font-size="12">endpoint</text>
+
+  <rect x="480" y="640" width="220" height="62" rx="6" fill="#ffffff" stroke="#718096" stroke-dasharray="5 3"/>
+  <text x="590" y="664" text-anchor="middle" font-weight="bold">NAT gateway or egress proxy</text>
+  <text x="590" y="684" text-anchor="middle" font-size="12">only if using the C4C feed</text>
+
+  <!-- Regional AWS services -->
+  <text x="742" y="132" font-size="12" font-weight="bold" fill="#975a16">AWS regional services</text>
+  <rect x="740" y="150" width="145" height="84" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="812" y="174" text-anchor="middle" font-weight="bold">Secrets Manager</text>
+  <text x="812" y="194" text-anchor="middle">bearer token</text>
+  <text x="812" y="212" text-anchor="middle">license key (opt.)</text>
+
+  <rect x="740" y="270" width="145" height="96" rx="6" fill="#ffffff" stroke="#2d3748"/>
+  <text x="812" y="294" text-anchor="middle" font-weight="bold">CloudWatch Logs</text>
+  <text x="812" y="314" text-anchor="middle">/ecs/c4c-mcp</text>
+  <text x="812" y="332" text-anchor="middle">console log</text>
+  <text x="812" y="350" text-anchor="middle">audit log (opt.)</text>
+
+  <rect x="740" y="410" width="145" height="90" rx="6" fill="#ffffff" stroke="#718096" stroke-dasharray="5 3"/>
+  <text x="812" y="434" text-anchor="middle" font-weight="bold">S3 mirror bucket</text>
+  <text x="812" y="454" text-anchor="middle">(optional)</text>
+  <text x="812" y="472" text-anchor="middle">signed library files</text>
+  <text x="812" y="489" text-anchor="middle" font-size="12" fill="#4a5568">policy: aws:SourceVpce</text>
+
+  <rect x="740" y="660" width="145" height="84" rx="6" fill="#ffffff" stroke="#718096" stroke-dasharray="5 3"/>
+  <text x="812" y="684" text-anchor="middle" font-weight="bold">Gate job (opt.)</text>
+  <text x="812" y="704" text-anchor="middle">mirror-library.mjs</text>
+  <text x="812" y="722" text-anchor="middle">fills the mirror</text>
+
+  <!-- Zone: internet -->
+  <rect x="930" y="70" width="250" height="700" rx="8" fill="#f7fafc" stroke="#718096" stroke-width="1.5"/>
+  <text x="945" y="94" font-size="14" font-weight="bold">Internet</text>
+  <rect x="945" y="540" width="220" height="104" rx="6" fill="#ffffff" stroke="#718096" stroke-dasharray="5 3"/>
+  <text x="1055" y="564" text-anchor="middle" font-weight="bold">C4C update feed (optional)</text>
+  <text x="1055" y="584" text-anchor="middle" font-size="12">mcp.claudeforcompliance.com</text>
+  <text x="1055" y="602" text-anchor="middle" font-size="12">/library (Cloudflare)</text>
+  <text x="1055" y="622" text-anchor="middle" font-size="12">receives: license key only</text>
+
+  <!-- Trust boundaries -->
+  <line x1="285" y1="70" x2="285" y2="770" stroke="#e53e3e" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="285" y="790" text-anchor="middle" font-weight="bold" fill="#c53030">TB1</text>
+  <line x1="730" y1="110" x2="730" y2="750" stroke="#e53e3e" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="730" y="790" text-anchor="middle" font-weight="bold" fill="#c53030">TB2</text>
+  <line x1="915" y1="70" x2="915" y2="770" stroke="#e53e3e" stroke-width="2" stroke-dasharray="8 5"/>
+  <text x="915" y="790" text-anchor="middle" font-weight="bold" fill="#c53030">TB3</text>
+
+  <!-- Arrows -->
+  <!-- 1 clients -> ALB -->
+  <line x1="250" y1="190" x2="356" y2="210" stroke="#2d3748" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="268" y="166" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="281" y="180" text-anchor="middle" font-weight="bold">1</text>
+  <!-- 2 ALB -> task -->
+  <line x1="480" y1="246" x2="480" y2="292" stroke="#2d3748" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="490" y="260" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="503" y="274" text-anchor="middle" font-weight="bold">2</text>
+  <!-- 3 Bedrock -> task -->
+  <line x1="445" y1="470" x2="445" y2="424" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <rect x="452" y="436" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="465" y="450" text-anchor="middle" font-weight="bold">3</text>
+  <!-- 4 Secrets -> task -->
+  <line x1="740" y1="200" x2="604" y2="306" stroke="#2d3748" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="654" y="236" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="667" y="250" text-anchor="middle" font-weight="bold">4</text>
+  <!-- 5 task -> CloudWatch -->
+  <line x1="600" y1="350" x2="736" y2="322" stroke="#2d3748" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="654" y="314" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="667" y="328" text-anchor="middle" font-weight="bold">5</text>
+  <!-- 6 task -> S3 endpoint -> S3 -->
+  <line x1="600" y1="400" x2="630" y2="436" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <line x1="710" y1="448" x2="736" y2="450" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <rect x="604" y="420" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="617" y="434" text-anchor="middle" font-weight="bold">6</text>
+  <!-- 7 task -> NAT -> feed -->
+  <line x1="575" y1="420" x2="575" y2="636" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <line x1="700" y1="650" x2="941" y2="600" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <rect x="582" y="600" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="595" y="614" text-anchor="middle" font-weight="bold">7</text>
+  <!-- 8 gate -> feed -->
+  <line x1="885" y1="700" x2="1050" y2="648" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <rect x="955" y="672" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="968" y="686" text-anchor="middle" font-weight="bold">8</text>
+  <!-- 9 gate -> S3 -->
+  <line x1="812" y1="660" x2="812" y2="504" stroke="#718096" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowOpt)"/>
+  <rect x="820" y="540" width="26" height="18" rx="3" fill="#ffffff" stroke="#2d3748"/>
+  <text x="833" y="554" text-anchor="middle" font-weight="bold">9</text>
+
+  <!-- Legend / data crossing -->
+  <rect x="20" y="806" width="1160" height="80" rx="6" fill="#f7fafc" stroke="#cbd5e0"/>
+  <text x="32" y="826" font-size="12">TB1 corporate network to VPC: MCP calls (search terms, citations, bearer token) in, regulation text out, over TLS to the ALB.</text>
+  <text x="32" y="846" font-size="12">TB2 VPC to AWS services: secrets in at task start, console and audit logs out, signed library files in from the S3 mirror.</text>
+  <text x="32" y="866" font-size="12">TB3 account to internet (optional): HTTPS GET with the license key out, signed library in. No questions, documents, answers or telemetry cross TB3.</text>
+  <text x="32" y="882" font-size="11" fill="#4a5568">Cloud assistants (ChatGPT connectors, claude.ai custom connectors, Copilot Studio) call from the vendor's cloud and would need a public TLS endpoint instead of this internal ALB.</text>
+</svg>
