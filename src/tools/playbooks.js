@@ -256,11 +256,11 @@ export function registerPlaybookTools(server, env) {
 export function playbookPromptText(p, arg) {
   const label = arg && arg.trim() ? ` (${arg.trim()})` : "";
   return [
-    `Run the Claude for Compliance playbook "${p.title}" (id: ${p.id}).`,
+    `Run the C4C playbook "${p.title}" (id: ${p.id}).`,
     `1. Call the start_playbook tool with {"id": "${p.id}"} and follow the instructions it ` +
       "returns exactly, loading the kit and any stage references with the tools it names.",
     "2. Then ask me to upload the documents it needs. They stay in this chat: do not send " +
-      "their text to any Claude for Compliance tool.",
+      "their text to any C4C tool.",
     p.prompt.ask.replace("{arg}", label),
   ].join("\n");
 }

@@ -8,13 +8,14 @@ import { readConfig } from "./config.js";
 import { openCorpus } from "./d1-sqlite.js";
 import { createNodeServer } from "./node-server.js";
 import { createUsageRecorder } from "./usage-report.js";
-import { readCurrent, startUpdater, openServingCorpus, updatesEnabled } from "./library.js";
+import { readBest, startUpdater, openServingCorpus, updatesEnabled } from "./library.js";
 
 const PUBLIC_KEY_PATH = fileURLToPath(new URL("./library-public-key.pem", import.meta.url));
 
 const config = readConfig();
 const publicKey = existsSync(PUBLIC_KEY_PATH) ? readFileSync(PUBLIC_KEY_PATH) : null;
-const initial = readCurrent(config.dataDir, { publicKey });
+const initial = readBest(config.dataDir, { publicKey, bundledDir: config.bundledDir });
+if (initial.source === "bundled") console.log(`Serving the built-in library ${initial.manifest.version}.`);
 if (initial.source === "prev") {
   console.warn(`manifest.json in ${config.dataDir} is missing or fails verification; serving the previous library ${initial.manifest.version}.`);
 }
@@ -28,7 +29,7 @@ const usage = config.usageReport ? createUsageRecorder({ dataDir: config.dataDir
 if (usage) setInterval(() => usage.flush(), 3600_000).unref();
 
 const server = createNodeServer({ config, getCorpus: () => corpus, getLibrary: () => library, record: usage?.record });
-server.listen(config.port, () => console.log(`C4C MCP listening on :${config.port}`));
+server.listen(config.port, config.host, () => console.log(`C4C MCP listening on ${config.host}:${config.port}`));
 if (config.auditLog !== "off") console.log(`audit log on: ${config.auditLog === "file" ? `${config.dataDir}/audit` : "stdout"}`);
 
 let stopUpdater = () => {};

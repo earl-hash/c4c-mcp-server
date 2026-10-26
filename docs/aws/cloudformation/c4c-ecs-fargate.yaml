@@ -58,7 +58,7 @@ Parameters:
     ConstraintDescription: Must be an IPv4 CIDR such as 10.0.0.0/16.
   ImageUri:
     Type: String
-    Default: 709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.0.2
+    Default: 709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.1.0
     Description: >-
       C4C image. Your account must be subscribed to the free AWS Marketplace listing.
       Change the tag here to upgrade.

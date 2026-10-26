@@ -176,6 +176,12 @@ export function createNodeServer({ config, getCorpus, getLibrary, record, audit:
     try {
       const path = new URL(req.url, "http://x").pathname;
       if (!(req.headers.host ?? "").trim() && path === "/mcp") throw new BadHost();
+      // Amazon Bedrock AgentCore Runtime health check: healthy only once a library is serving.
+      if (path === "/ping") {
+        return getCorpus() && getLibrary()
+          ? json(res, 200, { status: "Healthy", time_of_last_update: Math.floor(Date.now() / 1000) })
+          : json(res, 503, { status: "Unhealthy", reason: "no_library" });
+      }
       if (path === "/healthz") {
         const lib = getCorpus() ? getLibrary() : null;
         if (!lib) return json(res, 503, { ok: false, reason: "no_library" });

@@ -95,6 +95,19 @@ export function readCurrent(dataDir, { publicKey = null } = {}) {
   return { path: null, manifest: null, manifestBytes: null, sigBytes: null, source: null };
 }
 
+// The newest verified library among the data directory and an optional read-only built-in library
+// (C4C_BUNDLED_LIBRARY_DIR, laid out like a data directory). Data-directory libraries win ties, so an
+// installed update replaces the built-in copy and the built-in copy never replaces a newer install.
+export function readBest(dataDir, { publicKey = null, bundledDir = null } = {}) {
+  const disk = readCurrent(dataDir, { publicKey });
+  if (!bundledDir || !publicKey) return disk;
+  const bundled = readCurrent(bundledDir, { publicKey });
+  if (bundled.source !== "current" || !bundled.path) return disk;
+  if (!disk.path) return { ...bundled, source: "bundled" };
+  if (!disk.manifest) return disk; // a hand-placed legacy file is the operator's explicit choice
+  return compareVersions(bundled.manifest.version, disk.manifest.version) > 0 ? { ...bundled, source: "bundled" } : disk;
+}
+
 // Open the library for serving and probe it, so a corrupt hand-placed file means no-library mode, not a crash.
 export async function openServingCorpus(p, { log = (m) => console.error(m), open = openCorpus } = {}) {
   let c = null;
@@ -462,13 +475,14 @@ export function startUpdater({
   const cycle = async () => {
     // Re-swap if the verified library on disk is not the one being served.
     const c0 = serving();
-    const disk = readCurrent(config.dataDir, { publicKey });
+    const disk = readBest(config.dataDir, { publicKey, bundledDir: config.bundledDir });
     if (c0 && disk.path && disk.manifest && path.resolve(disk.path) !== path.resolve(c0.path)) {
       try { c0.swap(disk.path); deliver(disk.manifest, { path: disk.path, swapped: true }); }
       catch (err) { emit({ result: "failed", reason: "swap", version: disk.manifest.version, detail: String(err?.message ?? err) }); }
     }
     const r = await checkForUpdate({
       config, fetch: fetchFn, publicKey, ...checkOptions,
+      ...(config.bundledDir ? { current: readBest(config.dataDir, { publicKey, bundledDir: config.bundledDir }) } : {}),
       log: (m) => emit({ result: "warning", reason: "stale_lock", version: null, detail: m }),
     });
     if (r.installed) {

@@ -21,6 +21,8 @@ export function readConfig(env = process.env) {
   const updateUrl = env.C4C_UPDATE_URL || C4C_FEED;
   return {
     port: int(env.PORT, 8080),
+    // All IPv4 interfaces by default (Amazon Bedrock AgentCore Runtime requires 0.0.0.0).
+    host: env.HOST?.trim() || "0.0.0.0",
     dataDir,
     corpusPath: join(dataDir, "corpus.sqlite"),
     manifestPath: join(dataDir, "manifest.json"),
@@ -29,6 +31,8 @@ export function readConfig(env = process.env) {
     mirror: isMirror(updateUrl),
     staleDays: int(env.C4C_STALE_DAYS, 14),
     authToken: env.C4C_AUTH_TOKEN?.trim() || null,
+    // Read-only library built into the image (AgentCore edition): served when nothing newer is in dataDir.
+    bundledDir: env.C4C_BUNDLED_LIBRARY_DIR?.trim() || null,
     usageReport: env.C4C_USAGE_REPORT === "1" || env.C4C_USAGE_REPORT === "true",
     // Audit log of tool calls to the customer's console or /data/audit (off, stdout, file).
     auditLog: parseAuditMode(env.C4C_AUDIT_LOG),

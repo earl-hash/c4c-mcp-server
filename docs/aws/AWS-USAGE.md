@@ -35,7 +35,7 @@ Amazon EKS: `kubectl create secret generic c4c-mcp --from-literal=license-key=<k
 
 ```
 aws ecr get-login-password --region us-east-1 | helm registry login --username AWS --password-stdin 709825985650.dkr.ecr.us-east-1.amazonaws.com
-helm install c4c-mcp oci://709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp-helm --version 1.0.2
+helm install c4c-mcp oci://709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp-helm --version 1.1.0
 ```
 
 The chart runs one replica as UID 1000 with a read-only root filesystem, all capabilities dropped and no service-account token. Set `persistence.enabled=true` to keep the library on a volume across restarts; otherwise it re-downloads in seconds.

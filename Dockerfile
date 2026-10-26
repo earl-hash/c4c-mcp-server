@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:24-slim
+FROM node:24-slim AS runtime
 
 ENV NODE_ENV=production \
     C4C_DATA_DIR=/data \
@@ -33,12 +33,23 @@ RUN if [ ! -f server/library-public-key.pem ] && [ "$ALLOW_NO_PUBLIC_KEY" != "1"
     fi
 
 RUN mkdir -p /data && chown node:node /data && chmod 1777 /tmp
-USER node
+USER 1000
 # Declared volumes carry their ownership into platform-provided mounts (Fargate bind mounts start root-owned).
 VOLUME /data /tmp
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node","--no-warnings=ExperimentalWarning","server/main.mjs"]
+
+# Amazon Bedrock AgentCore Runtime edition: `docker build --target agentcore`, with a signed library
+# (manifest.json, manifest.sig, corpus-<version>.sqlite) in agentcore-library/. AgentCore starts a fresh
+# microVM per session, so the library ships in the image; the server still verifies its signature at start
+# and still takes newer releases from C4C_LICENSE_KEY or a mirror C4C_UPDATE_URL when they are set.
+FROM runtime AS agentcore
+COPY --chown=1000:1000 agentcore-library/ /opt/c4c/library/
+ENV C4C_BUNDLED_LIBRARY_DIR=/opt/c4c/library     PORT=8000
+
+# Default target: the standard image.
+FROM runtime

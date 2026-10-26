@@ -1,7 +1,7 @@
 # Image references live only here (AWS Marketplace Helm rule).
 image:
   repository: "709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp"
-  tag: "1.0.2"
+  tag: "1.1.0"
   pullPolicy: IfNotPresent
 
 replicaCount: 1

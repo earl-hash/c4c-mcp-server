@@ -17,7 +17,7 @@
   "containerDefinitions": [
     {
       "name": "c4c-mcp",
-      "image": "709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.0.2",
+      "image": "709825985650.dkr.ecr.us-east-1.amazonaws.com/cf-synergies/c4c-mcp:1.1.0",
       "essential": true,
       "readonlyRootFilesystem": true,
       "portMappings": [{ "containerPort": 8080, "protocol": "tcp" }],
